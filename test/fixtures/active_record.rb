@@ -248,6 +248,7 @@ class Breed
       @id = id
     end
     @name = name
+    @errors = ActiveModel::Errors.new(self)
   end
 
   attr_accessor :id, :name
@@ -256,7 +257,22 @@ class Breed
     $breed_data.remove(@id)
   end
 
-  def save!
+  def save
+    true
+  end
+
+  def valid?
+    @errors.clear
+    if name.is_a?(String) && name.length > 0
+      return true
+    else
+      @errors.set(:name, ["can't be blank"])
+      return false
+    end
+  end
+
+  def errors
+    @errors
   end
 end
 
@@ -327,7 +343,8 @@ end
 class PeopleController < JSONAPI::ResourceController
 end
 
-class PostsController < JSONAPI::ResourceController
+class PostsController < ActionController::Base
+  include JSONAPI::ActsAsResourceController
 end
 
 class CommentsController < JSONAPI::ResourceController
@@ -360,7 +377,8 @@ module Api
     class PeopleController < JSONAPI::ResourceController
     end
 
-    class PostsController < JSONAPI::ResourceController
+    class PostsController < ActionController::Base
+      include JSONAPI::ActsAsResourceController
     end
 
     class TagsController < JSONAPI::ResourceController

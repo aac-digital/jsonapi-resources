@@ -1,5 +1,3 @@
-require 'jsonapi/configuration'
-require 'jsonapi/association'
 require 'jsonapi/callbacks'
 
 module JSONAPI
@@ -101,7 +99,7 @@ module JSONAPI
     end
 
     # Override this on a resource to customize how the associated records
-    # are fetched for a model. Particularly helpful for authoriztion.
+    # are fetched for a model. Particularly helpful for authorization.
     def records_for(association_name, options = {})
       model.send association_name
     end
@@ -114,10 +112,13 @@ module JSONAPI
     end
 
     def _save
-      @model.save!
-      @save_needed = false
-    rescue ActiveRecord::RecordInvalid, ActiveRecord::RecordNotSaved => e
-      raise JSONAPI::Exceptions::ValidationErrors.new(e.record.errors.messages)
+      unless @model.valid?
+        raise JSONAPI::Exceptions::ValidationErrors.new(@model.errors.messages)
+      end
+
+      saved = @model.save
+      @save_needed = !saved
+      saved
     end
 
     def _remove
@@ -243,6 +244,10 @@ module JSONAPI
       def attribute(attr, options = {})
         check_reserved_attribute_name(attr)
 
+        if (attr.to_sym == :id) && (options[:format].nil?)
+          ActiveSupport::Deprecation.warn('Id without format is no longer supported. Please remove ids from attributes, or specify a format.')
+        end
+
         @_attributes ||= {}
         @_attributes[attr] = options
         define_method attr do
@@ -284,7 +289,7 @@ module JSONAPI
 
       # Override in your resource to filter the updateable keys
       def updateable_fields(context = nil)
-        _updateable_associations | _attributes.keys - [_primary_key]
+        _updateable_associations | _attributes.keys - [:id]
       end
 
       # Override in your resource to filter the createable keys
@@ -301,6 +306,11 @@ module JSONAPI
         _associations.keys | _attributes.keys
       end
 
+      def apply_includes(records, directives)
+        records = records.includes(*directives.model_includes) if directives
+        records
+      end
+
       def apply_pagination(records, paginator)
         if paginator
           records = paginator.apply(records)
@@ -309,7 +319,11 @@ module JSONAPI
       end
 
       def apply_sort(records, order_options)
-        records.order(order_options)
+        if order_options.any?
+          records.order(order_options)
+        else
+          records
+        end
       end
 
       def apply_filter(records, filter, value)
@@ -330,17 +344,25 @@ module JSONAPI
             records = apply_filter(records, filter, value)
           end
         end
-        records.includes(required_includes)
+        if required_includes.any?
+          records.includes(required_includes)
+        elsif records.respond_to? :to_ary
+          records
+        else
+          records.all
+        end
       end
 
       # Override this method if you have more complex requirements than this basic find method provides
       def find(filters, options = {})
         context = options[:context]
         sort_criteria = options.fetch(:sort_criteria) { [] }
+        include_directives = options.fetch(:include_directives, nil)
 
         resources = []
 
         records = records(options)
+        records = apply_includes(records, include_directives)
         records = apply_filters(records, filters)
         records = apply_sort(records, construct_order_options(sort_criteria))
         records = apply_pagination(records, options[:paginator])
@@ -354,7 +376,10 @@ module JSONAPI
 
       def find_by_key(key, options = {})
         context = options[:context]
-        model = records(options).where({_primary_key => key}).first
+        include_directives = options.fetch(:include_directives, nil)
+        records = records(options)
+        records = apply_includes(records, include_directives)
+        model = records.where({_primary_key => key}).first
         if model.nil?
           raise JSONAPI::Exceptions::RecordNotFound.new(key)
         end
@@ -395,7 +420,7 @@ module JSONAPI
       def verify_key(key, context = nil)
         key && Integer(key)
       rescue
-        raise JSONAPI::Exceptions::InvalidFieldValue.new(_primary_key, key)
+        raise JSONAPI::Exceptions::InvalidFieldValue.new(:id, key)
       end
 
       # override to allow for key processing and checking
@@ -421,12 +446,7 @@ module JSONAPI
       end
 
       def _updateable_associations
-        associations = []
-
-        @_associations.each do |key, association|
-          associations.push(key)
-        end
-        associations
+        @_associations.map { |key, association| key }
       end
 
       def _has_association?(type)
@@ -452,7 +472,7 @@ module JSONAPI
       end
 
       def _allowed_filters
-        !@_allowed_filters.nil? ? @_allowed_filters : Set.new([_primary_key])
+        !@_allowed_filters.nil? ? @_allowed_filters : Set.new([:id])
       end
 
       def _resource_name_from_type(type)
@@ -486,7 +506,8 @@ module JSONAPI
 
       def construct_order_options(sort_params)
         sort_params.each_with_object({}) { |sort, order_hash|
-          order_hash[sort[:field]] = sort[:direction]
+          field = sort[:field] == 'id' ? _primary_key : sort[:field]
+          order_hash[field] = sort[:direction]
         }
       end
 

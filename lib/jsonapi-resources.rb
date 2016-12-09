@@ -1,4 +1,5 @@
 require 'jsonapi/resource'
+require 'jsonapi/acts_as_resource_controller'
 require 'jsonapi/resource_controller'
 require 'jsonapi/resources/version'
 require 'jsonapi/configuration'
@@ -10,3 +11,12 @@ require 'jsonapi/serializer_include_directives'
 if Rails::VERSION::MAJOR < 4
   require 'jsonapi/rails-3.2/polyfill'
 end
+require 'jsonapi/resource_serializer'
+require 'jsonapi/exceptions'
+require 'jsonapi/error'
+require 'jsonapi/error_codes'
+require 'jsonapi/request'
+require 'jsonapi/operations_processor'
+require 'jsonapi/active_record_operations_processor'
+require 'jsonapi/association'
+require 'jsonapi/include_directives'

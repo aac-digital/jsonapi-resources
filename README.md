@@ -194,9 +194,6 @@ different scheme publicly.
 By default only integer values are allowed for primary key. To change this behavior you can override 
 `verify_key` class method:
 
-By default only integer values are allowed for primary key. To change this behavior you can override 
-`verify_key` class method:
-
 ```ruby
 class CurrencyResource < JSONAPI::Resource
   primary_key :code
@@ -526,6 +523,11 @@ Callbacks can also be defined for `JSONAPI::OperationsProcessor` events:
 
 ### Controllers
 
+There are two ways to implement a controller for your resources. Either derive from `ResourceController` or import
+the `ActsAsResourceController` module.
+
+##### ResourceController
+
 `JSONAPI::Resources` provides a class, `ResourceController`, that can be used as the base class for your controllers. 
 `ResourceController` supports `index`, `show`, `create`, `update`, and `destroy` methods. Just deriving your controller 
 from `ResourceController` will give you a fully functional controller.
@@ -555,6 +557,19 @@ end
 # and share its context
 class PeopleController < ApplicationController
 
+end
+```
+
+##### ActsAsResourceController
+
+`JSONAPI::Resources` also provides a module, `JSONAPI::ActsAsResourceController`. You can include this module to
+bring in all the features of `ResourceController` into your existing controller class.
+
+For example:
+
+```ruby
+class PostsController < ActionController::Base
+  include JSONAPI::ActsAsResourceController
 end
 ```
 
@@ -733,16 +748,16 @@ A hash of resource types and arrays of fields for each resource type.
 
 ```ruby
 post = Post.find(1)
-JSONAPI::ResourceSerializer.new(PostResource).serialize_to_hash(
-  PostResource.new(post),
-  include: ['comments','author','comments.tags','author.posts'],
+include_resources = ['comments','author','comments.tags','author.posts']
+
+JSONAPI::ResourceSerializer.new(PostResource, include: include_resources,
   fields: {
     people: [:email, :comments],
     posts: [:title, :author],
     tags: [:name],
     comments: [:body, :post]
   }
-)
+).serialize_to_hash(PostResource.new(post))
 ```
 
 ##### `context`
@@ -829,14 +844,6 @@ edit_contact GET    /contacts/:id/edit(.:format) contacts#edit
 To manually add in the nested routes you can use the `jsonapi_links`, `jsonapi_related_resources` and
 `jsonapi_related_resource` inside the block. Or, you can add the default set of nested routes using the 
 `jsonapi_relationships` method. For example:
-
-```ruby
-Rails.application.routes.draw do
-  jsonapi_resources :contacts do
-    jsonapi_relationships
-  end
-end
-```
 
 ```ruby
 Rails.application.routes.draw do

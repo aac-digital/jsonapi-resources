@@ -62,6 +62,16 @@ if Rails::VERSION::MAJOR >= 4 && Rails::VERSION::MINOR < 1
   end
 end
 
+def count_queries(&block)
+  @query_count = 0
+  ActiveSupport::Notifications.subscribe('sql.active_record') do
+    @query_count = @query_count + 1
+  end
+  yield block
+  ActiveSupport::Notifications.unsubscribe('sql.active_record')
+  @query_count
+end
+
 TestApp.initialize!
 
 require File.expand_path('../fixtures/active_record', __FILE__)
@@ -233,3 +243,4 @@ class TitleValueFormatter < JSONAPI::ValueFormatter
     end
   end
 end
+
