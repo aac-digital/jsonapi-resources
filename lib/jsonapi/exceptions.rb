@@ -67,6 +67,20 @@ module JSONAPI
       end
     end
 
+    class InvalidFiltersSyntax < Error
+      attr_accessor :filters
+      def initialize(filters)
+        @filters = filters
+      end
+
+      def errors
+        [JSONAPI::Error.new(code: JSONAPI::INVALID_FILTERS_SYNTAX,
+                             status: :bad_request,
+                             title: 'Invalid filters syntax',
+                             detail: "#{filters} is not a valid syntax for filtering.")]
+      end
+    end
+
     class FilterNotAllowed < Error
       attr_accessor :filter
       def initialize(filter)
@@ -188,21 +202,6 @@ module JSONAPI
       end
     end
 
-    class InvalidSortFormat < Error
-      attr_accessor :sort_criteria, :resource
-      def initialize(resource, sort_criteria)
-        @resource = resource
-        @sort_criteria = sort_criteria
-      end
-
-      def errors
-        [JSONAPI::Error.new(code: JSONAPI::INVALID_SORT_FORMAT,
-                            status: :bad_request,
-                            title: 'Invalid sort format',
-                            detail: "#{sort_criteria} must start with a direction (+ or -)")]
-      end
-    end
-
     class ParametersNotAllowed < Error
       attr_accessor :params
       def initialize(params)
@@ -303,6 +302,15 @@ module JSONAPI
             end
           )
         end
+      end
+    end
+
+    class SaveFailed < Error
+      def errors
+        [JSONAPI::Error.new(code: JSONAPI::SAVE_FAILED,
+                            status: :unprocessable_entity,
+                            title: 'Save failed or was cancelled',
+                            detail: 'Save failed or was cancelled')]
       end
     end
 

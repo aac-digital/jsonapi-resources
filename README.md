@@ -50,8 +50,6 @@ Resources must be derived from `JSONAPI::Resource`, or a class that is itself de
 For example:
 
 ```ruby
-require 'jsonapi/resource'
-
 class ContactResource < JSONAPI::Resource
 end
 ```
@@ -64,8 +62,6 @@ the `attribute` method, and multiple attributes can be declared with the `attrib
 For example:
 
 ```ruby
-require 'jsonapi/resource'
-
 class ContactResource < JSONAPI::Resource
   attribute :name_first
   attributes :name_last, :email, :twitter
@@ -81,8 +77,6 @@ This allows a resource's methods to access the underlying model.
 For example, a computed attribute for `full_name` could be defined as such:
 
 ```ruby
-require 'jsonapi/resource'
-
 class ContactResource < JSONAPI::Resource
   attributes :name_first, :name_last, :email, :twitter
   attribute :full_name
@@ -119,16 +113,14 @@ end
 Context flows through from the controller and can be used to control the attributes based on the current user (or other
 value).
 
-##### Creatable and Updateable Attributes
+##### Creatable and Updatable Attributes
 
-By default all attributes are assumed to be updateable and creatable. To prevent some attributes from being accepted by 
-the `update` or `create` methods, override the `self.updateable_fields` and `self.createable_fields` methods on a resource.
+By default all attributes are assumed to be updatable and creatable. To prevent some attributes from being accepted by 
+the `update` or `create` methods, override the `self.updatable_fields` and `self.creatable_fields` methods on a resource.
 
 This example prevents `full_name` from being set:
 
 ```ruby
-require 'jsonapi/resource'
-
 class ContactResource < JSONAPI::Resource
   attributes :name_first, :name_last, :full_name
 
@@ -136,18 +128,18 @@ class ContactResource < JSONAPI::Resource
     "#{@model.name_first}, #{@model.name_last}"
   end
 
-  def self.updateable_fields(context)
+  def self.updatable_fields(context)
     super - [:full_name]
   end
 
-  def self.createable_fields(context)
+  def self.creatable_fields(context)
     super - [:full_name]
   end
 end
 ```
 
 The `context` is not by default used by the `ResourceController`, but may be used if you override the controller methods.
-By using the context you have the option to determine the createable and updateable fields based on the user.
+By using the context you have the option to determine the creatable and updatable fields based on the user.
 
 ##### Sortable Attributes
 
@@ -280,8 +272,6 @@ declared using the `filter` method, and multiple filters can be declared with th
 For example:
 
 ```ruby
-require 'jsonapi/resource'
-
 class ContactResource < JSONAPI::Resource
   attributes :name_first, :name_last, :email, :twitter
 
@@ -289,6 +279,25 @@ class ContactResource < JSONAPI::Resource
   filters :name_first, :name_last
 end
 ```
+
+##### Default Filters
+
+A default filter may be defined for a resource using the `default` option on the `filter` method. This default is used
+unless the request overrides this value.
+
+For example:
+
+```ruby
+ class CommentResource < JSONAPI::Resource
+  attributes :body, :status
+  has_one :post
+  has_one :author
+  
+  filter :status, default: 'published,pending'
+end
+```
+
+The default value is used as if it came from the request.
 
 ##### Finders
 
@@ -358,7 +367,7 @@ control over how the filters are applied to the `Arel` relation.
 This example shows how you can implement different approaches for different filters.
 
 ```ruby
-def self.apply_filter(records, filter, value)
+def self.apply_filter(records, filter, value, options)
   case filter
     when :visibility
       records.where('users.publicly_visible = ?', value == :public)
@@ -427,9 +436,9 @@ from the configuration settings is used.
 
 ###### Custom Paginators
 
-Custom `paginators` can be used. These should derive from `Paginator`. The `apply` method takes a `relation` and is 
-expected to return a `relation`. The `initialize` method receives the parameters from the `page` request parameters. It 
-is up to the paginator author to parse and validate these parameters.
+Custom `paginators` can be used. These should derive from `Paginator`. The `apply` method takes a `relation` and
+`order_options` and is expected to return a `relation`. The `initialize` method receives the parameters from the `page`
+request parameters. It is up to the paginator author to parse and validate these parameters.
 
 For example, here is a very simple single record at a time paginator:
 
@@ -440,7 +449,7 @@ class SingleRecordPaginator < JSONAPI::Paginator
     @page = params.to_i
   end
 
-  def apply(relation)
+  def apply(relation, order_options)
     relation.offset(@page).limit(1)
   end
 end
@@ -519,7 +528,53 @@ Callbacks can be defined for the following `JSONAPI::Resource` events:
 
 Callbacks can also be defined for `JSONAPI::OperationsProcessor` events:
 - `:operations`: The set of operations.
-- `:operation`: The individual operations.
+- `:operation`: Any individual operation.
+- `:find_operation`: A `find_operation`.
+- `:show_operation`: A `show_operation`.
+- `:show_association_operation`: A `show_association_operation`.
+- `:show_related_resource_operation`: A `show_related_resource_operation`.
+- `:show_related_resources_operation`: A `show_related_resources_operation`.
+- `:create_resource_operation`: A `create_resource_operation`.
+- `:remove_resource_operation`: A `remove_resource_operation`.
+- `:replace_fields_operation`: A `replace_fields_operation`.
+- `:replace_has_one_association_operation`: A `replace_has_one_association_operation`.
+- `:create_has_many_association_operation`: A `create_has_many_association_operation`.
+- `:replace_has_many_association_operation`: A `replace_has_many_association_operation`.
+- `:remove_has_many_association_operation`: A `remove_has_many_association_operation`.
+- `:remove_has_one_association_operation`: A `remove_has_one_association_operation`.
+
+The operation callbacks have access to two meta data hashes, `@operations_meta` and `@operation_meta`, two links hashes,
+`@operations_links` and `@operation_links`, the full list of `@operations`, each individual `@operation` and the 
+`@result` variables.
+
+##### Custom `OperationsProcessor` Example to Return total_count in Meta
+
+Note: this can also be accomplished with the `top_level_meta_include_record_count` option, and in most cases that will
+be the better option. 
+
+To return the total record count of a find operation in the meta data of a find operation you can create a custom
+OperationsProcessor. For example:
+
+```ruby
+class CountingActiveRecordOperationsProcessor < ActiveRecordOperationsProcessor
+  after_find_operation do
+    @operation_meta[:total_records] = @operation.record_count
+  end
+end
+```
+
+Set the configuration option `operations_processor` to use the new `CountingActiveRecordOperationsProcessor` by
+specifying the snake cased name of the class (without the `OperationsProcessor`).
+ 
+```ruby
+JSONAPI.configure do |config|
+  config.operations_processor = :counting_active_record
+end
+```
+
+The callback code will be called after each find. It will use the same options as the find operation, without the 
+pagination, to collect the record count. This is stored in the `operation_meta`, which will be returned in the top level
+meta element.
 
 ### Controllers
 
@@ -563,7 +618,7 @@ end
 ##### ActsAsResourceController
 
 `JSONAPI::Resources` also provides a module, `JSONAPI::ActsAsResourceController`. You can include this module to
-bring in all the features of `ResourceController` into your existing controller class.
+mix in all the features of `ResourceController` into your existing controller class.
 
 For example:
 
@@ -683,17 +738,31 @@ module JSONAPI
   KEY_NOT_INCLUDED_IN_URL = 110
   INVALID_INCLUDE = 112
   RELATION_EXISTS = 113
-  INVALID_SORT_PARAM = 114
+  INVALID_SORT_CRITERIA = 114
   INVALID_LINKS_OBJECT = 115
   TYPE_MISMATCH = 116
   INVALID_PAGE_OBJECT = 117
   INVALID_PAGE_VALUE = 118
+  INVALID_FIELD_FORMAT = 119
+  INVALID_FILTERS_SYNTAX = 120
+  SAVE_FAILED = 121
+  FORBIDDEN = 403
   RECORD_NOT_FOUND = 404
+  UNSUPPORTED_MEDIA_TYPE = 415
   LOCKED = 423
 end
 ```
 
 These codes can be customized in your app by creating an initializer to override any or all of the codes.
+
+In addition textual error codes can be returned by setting the configuration option `use_text_errors = true`. For
+example:
+
+```ruby
+JSONAPI.configure do |config|
+  config.use_text_errors = :true
+end
+```
 
 ### Serializer
 
@@ -702,24 +771,55 @@ The `ResourceSerializer` can be used to serialize a resource into JSON API compl
  method that takes a resource instance or array of resource instances to serialize. For example:
 
 ```ruby
-require 'jsonapi/resource_serializer'
 post = Post.find(1)
 JSONAPI::ResourceSerializer.new(PostResource).serialize_to_hash(PostResource.new(post))
 ```
 
 This returns results like this:
 
-```ruby
+```json
 {
-  posts: {
-    id: 1,
-    title: 'New post',
-    body: 'A body!!!',
-    links: {
-      section: nil,
-      author: 1,
-      tags: [1,2,3],
-      comments: [1,2]
+  "data": {
+    "type": "posts",
+    "id": "1",
+    "links": {
+      "self": "http://example.com/posts/1"
+    },
+    "attributes": {
+      "title": "New post",
+      "body": "A body!!!",
+      "subject": "New post"
+    },
+    "relationships": {
+      "section": {
+        "links": {
+          "self": "http://example.com/posts/1/links/section",
+          "related": "http://example.com/posts/1/section"
+        },
+        "data": null
+      },
+      "author": {
+        "links": {
+          "self": "http://example.com/posts/1/links/author",
+          "related": "http://example.com/posts/1/author"
+        },
+        "data": {
+          "type": "people",
+          "id": "1"
+        }
+      },
+      "tags": {
+        "links": {
+          "self": "http://example.com/posts/1/links/tags",
+          "related": "http://example.com/posts/1/tags"
+        }
+      },
+      "comments": {
+        "links": {
+          "self": "http://example.com/posts/1/links/comments",
+          "related": "http://example.com/posts/1/comments"
+        }
+      }
     }
   }
 }
@@ -790,8 +890,6 @@ contact_links_phone_numbers GET       /contacts/:contact_id/links/phone-numbers(
       contact_phone_numbers GET       /contacts/:contact_id/phone-numbers(.:format)             phone_numbers#get_related_resources {:association=>"phone_numbers", :source=>"contacts"}
                    contacts GET       /contacts(.:format)                                       contacts#index
                             POST      /contacts(.:format)                                       contacts#create
-                new_contact GET       /contacts/new(.:format)                                   contacts#new
-               edit_contact GET       /contacts/:id/edit(.:format)                              contacts#edit
                     contact GET       /contacts/:id(.:format)                                   contacts#show
                             PATCH     /contacts/:id(.:format)                                   contacts#update
                             PUT       /contacts/:id(.:format)                                   contacts#update
@@ -802,8 +900,6 @@ contact_links_phone_numbers GET       /contacts/:contact_id/links/phone-numbers(
        phone_number_contact GET       /phone-numbers/:phone_number_id/contact(.:format)         contacts#get_related_resource {:association=>"contact", :source=>"phone_numbers"}
               phone_numbers GET       /phone-numbers(.:format)                                  phone_numbers#index
                             POST      /phone-numbers(.:format)                                  phone_numbers#create
-           new_phone_number GET       /phone-numbers/new(.:format)                              phone_numbers#new
-          edit_phone_number GET       /phone-numbers/:id/edit(.:format)                         phone_numbers#edit
                phone_number GET       /phone-numbers/:id(.:format)                              phone_numbers#show
                             PATCH     /phone-numbers/:id(.:format)                              phone_numbers#update
                             PUT       /phone-numbers/:id(.:format)                              phone_numbers#update
@@ -833,8 +929,6 @@ gives routes that are only related to the primary resource, and none for its rel
       Prefix Verb   URI Pattern                  Controller#Action
     contacts GET    /contacts(.:format)          contacts#index
              POST   /contacts(.:format)          contacts#create
- new_contact GET    /contacts/new(.:format)      contacts#new
-edit_contact GET    /contacts/:id/edit(.:format) contacts#edit
      contact GET    /contacts/:id(.:format)      contacts#show
              PATCH  /contacts/:id(.:format)      contacts#update
              PUT    /contacts/:id(.:format)      contacts#update
@@ -873,8 +967,6 @@ contact_links_phone_numbers GET    /contacts/:contact_id/links/phone-numbers(.:f
                             DELETE /contacts/:contact_id/links/phone-numbers/:keys(.:format) contacts#destroy_association {:association=>"phone_numbers"}
                    contacts GET    /contacts(.:format)                                       contacts#index
                             POST   /contacts(.:format)                                       contacts#create
-                new_contact GET    /contacts/new(.:format)                                   contacts#new
-               edit_contact GET    /contacts/:id/edit(.:format)                              contacts#edit
                     contact GET    /contacts/:id(.:format)                                   contacts#show
                             PATCH  /contacts/:id(.:format)                                   contacts#update
                             PUT    /contacts/:id(.:format)                                   contacts#update
@@ -904,8 +996,6 @@ gives the following routes:
 contact_phone_numbers GET    /contacts/:contact_id/phone-numbers(.:format) phone_numbers#get_related_resources {:association=>"phone_numbers", :source=>"contacts"}
              contacts GET    /contacts(.:format)                           contacts#index
                       POST   /contacts(.:format)                           contacts#create
-          new_contact GET    /contacts/new(.:format)                       contacts#new
-         edit_contact GET    /contacts/:id/edit(.:format)                  contacts#edit
               contact GET    /contacts/:id(.:format)                       contacts#show
                       PATCH  /contacts/:id(.:format)                       contacts#update
                       PUT    /contacts/:id(.:format)                       contacts#update
@@ -934,8 +1024,6 @@ gives the following routes:
 phone_number_contact GET    /phone-numbers/:phone_number_id/contact(.:format) contacts#get_related_resource {:association=>"contact", :source=>"phone_numbers"}
        phone_numbers GET    /phone-numbers(.:format)                          phone_numbers#index
                      POST   /phone-numbers(.:format)                          phone_numbers#create
-    new_phone_number GET    /phone-numbers/new(.:format)                      phone_numbers#new
-   edit_phone_number GET    /phone-numbers/:id/edit(.:format)                 phone_numbers#edit
         phone_number GET    /phone-numbers/:id(.:format)                      phone_numbers#show
                      PATCH  /phone-numbers/:id(.:format)                      phone_numbers#update
                      PUT    /phone-numbers/:id(.:format)                      phone_numbers#update
@@ -1065,7 +1153,7 @@ different key formatter.
 For example, to use camel cased keys with an initial lowercase character (JSON's default) create an initializer and add 
 the following:
 
-```
+```ruby
 JSONAPI.configure do |config|
   # built in key format options are :underscored_key, :camelized_key and :dasherized_key
   config.json_key_format = :camelized_key
@@ -1086,6 +1174,42 @@ end
 ```
 
 You would specify this in `JSONAPI.configure` as `:upper_camelized`.
+
+## Configuration
+
+JR has a few configuration options. Some have already been mentioned above. To set configuration options create an 
+initializer and add the options you wish to set. All options have defaults, so you only need to set the options that
+are different. The default options are shown below.
+
+```ruby
+JSONAPI.configure do |config|
+  #:underscored_key, :camelized_key, :dasherized_key, or custom
+  config.json_key_format = :dasherized_key
+
+  #:underscored_route, :camelized_route, :dasherized_route, or custom
+  config.route_format = :dasherized_route
+
+  #:basic, :active_record, or custom
+  config.operations_processor = :active_record
+
+  config.allowed_request_params = [:include, :fields, :format, :controller, :action, :sort, :page]
+
+  # :none, :offset, :paged, or a custom paginator name
+  config.default_paginator = :none
+
+  # Output pagination links at top level
+  config.top_level_links_include_pagination = true
+
+  config.default_page_size = 10
+  config.maximum_page_size = 20
+
+  # Output the record count in top level meta data for find operations
+  config.top_level_meta_include_record_count = false
+  config.top_level_meta_record_count_key = :record_count
+
+  config.use_text_errors = false
+end
+```
 
 ## Contributing
 

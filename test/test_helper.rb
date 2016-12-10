@@ -93,6 +93,7 @@ TestApp.routes.draw do
   jsonapi_resources :moons
   jsonapi_resources :preferences
   jsonapi_resources :facts
+  jsonapi_resources :categories
 
   namespace :api do
     namespace :v1 do
@@ -117,7 +118,7 @@ TestApp.routes.draw do
         jsonapi_link :author, except: [:destroy]
       end
 
-      jsonapi_resource :preferences
+      jsonapi_resource :preferences, except: [:create, :destroy]
 
       jsonapi_resources :books
       jsonapi_resources :book_comments
@@ -146,6 +147,8 @@ TestApp.routes.draw do
 
       jsonapi_resources :iso_currencies do
       end
+
+      jsonapi_resources :books
     end
 
     JSONAPI.configuration.route_format = :dasherized_route

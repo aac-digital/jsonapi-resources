@@ -18,7 +18,7 @@ module JSONAPI
 
       @fields =  options.fetch(:fields, {})
       @include = options.fetch(:include, [])
-      @include_directives = options.fetch(:include_directives, nil)
+      @include_directives = options[:include_directives]
       @key_formatter = options.fetch(:key_formatter, JSONAPI.configuration.key_formatter)
       @route_formatter = options.fetch(:route_formatter, JSONAPI.configuration.route_formatter)
       @base_url = options.fetch(:base_url, '')
@@ -47,11 +47,7 @@ module JSONAPI
 
       primary_hash = {data: is_resource_collection ? primary_objects : primary_objects[0]}
 
-      if included_objects.size > 0
-        primary_hash[:included] = included_objects
-      else
-        primary_hash
-      end
+      primary_hash[:included] = included_objects if included_objects.size > 0
       primary_hash
     end
 
@@ -69,6 +65,10 @@ module JSONAPI
         },
         data: data
       }
+    end
+
+    def find_link(query_params)
+      "#{@base_url}/#{formatted_module_path_from_klass(@primary_resource_klass)}#{@route_formatter.format(@primary_resource_klass._type.to_s)}?#{query_params.to_query}"
     end
 
     private
@@ -106,11 +106,14 @@ module JSONAPI
 
       obj_hash['type'] = format_key(source.class._type.to_s)
 
-      attributes = attribute_hash(source)
-      obj_hash.merge!({'attributes' => attributes}) unless attributes.empty?
+      links = relationship_links(source)
+      obj_hash['links'] = links unless links.empty?
 
-      links = links_hash(source, include_directives)
-      obj_hash.merge!({'links' => links}) unless links.empty?
+      attributes = attribute_hash(source)
+      obj_hash['attributes'] = attributes unless attributes.empty?
+
+      relationships = relationship_data(source, include_directives)
+      obj_hash['relationships'] = relationships unless relationships.nil? || relationships.empty?
 
       return obj_hash
     end
@@ -134,9 +137,7 @@ module JSONAPI
       end
     end
 
-    # Returns a hash of links for the requested associations for a resource, filtered by the resource
-    # class's fetchable method
-    def links_hash(source, include_directives)
+    def relationship_data(source, include_directives)
       associations = source.class._associations
       requested = requested_fields(source.class._type)
       fields = associations.keys
@@ -148,10 +149,9 @@ module JSONAPI
 
       included_associations = source.fetchable_fields & associations.keys
 
-      links = {}
-      links[:self] = self_href(source)
+      data = {}
 
-      associations.each_with_object(links) do |(name, association), hash|
+      associations.each_with_object(data) do |(name, association), hash|
         if included_associations.include? name
           ia = include_directives[:include_related][name]
 
@@ -176,7 +176,7 @@ module JSONAPI
                 if include_linkage && !associations_only
                   add_included_object(type, id, object_hash(resource, ia))
                 elsif include_linked_children || associations_only
-                  links_hash(resource, ia)
+                  relationship_data(resource, ia)
                 end
               end
             elsif association.is_a?(JSONAPI::Association::HasMany)
@@ -187,7 +187,7 @@ module JSONAPI
                 if include_linkage && !associations_only
                   add_included_object(type, id, object_hash(resource, ia))
                 elsif include_linked_children || associations_only
-                  links_hash(resource, ia)
+                  relationship_data(resource, ia)
                 end
               end
             end
@@ -196,8 +196,19 @@ module JSONAPI
       end
     end
 
+    def relationship_links(source)
+      links = {}
+      links[:self] = self_href(source)
+
+      links
+    end
+
     def formatted_module_path(source)
-      source.class.name =~ /::[^:]+\Z/ ? (@route_formatter.format($`).freeze.gsub('::', '/') + '/').downcase : ''
+      formatted_module_path_from_klass(source.class)
+    end
+
+    def formatted_module_path_from_klass(klass)
+      klass.name =~ /::[^:]+\Z/ ? (@route_formatter.format($`).freeze.gsub('::', '/') + '/').downcase : ''
     end
 
     def self_href(source)
@@ -214,7 +225,7 @@ module JSONAPI
     end
 
     def self_link(source, association)
-      "#{self_href(source)}/links/#{format_route(association.name)}"
+      "#{self_href(source)}/relationships/#{format_route(association.name)}"
     end
 
     def related_link(source, association)
@@ -244,17 +255,19 @@ module JSONAPI
 
     def link_object_has_one(source, association)
       link_object_hash = {}
-      link_object_hash[:self] = self_link(source, association)
-      link_object_hash[:related] = related_link(source, association)
-      link_object_hash[:linkage] = has_one_linkage(source, association)
+      link_object_hash[:links] = {}
+      link_object_hash[:links][:self] = self_link(source, association)
+      link_object_hash[:links][:related] = related_link(source, association)
+      link_object_hash[:data] = has_one_linkage(source, association)
       link_object_hash
     end
 
     def link_object_has_many(source, association, include_linkage)
       link_object_hash = {}
-      link_object_hash[:self] = self_link(source, association)
-      link_object_hash[:related] = related_link(source, association)
-      link_object_hash[:linkage] = has_many_linkage(source, association) if include_linkage
+      link_object_hash[:links] = {}
+      link_object_hash[:links][:self] = self_link(source, association)
+      link_object_hash[:links][:related] = related_link(source, association)
+      link_object_hash[:data] = has_many_linkage(source, association) if include_linkage
       link_object_hash
     end
 

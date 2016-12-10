@@ -26,4 +26,5 @@ Gem::Specification.new do |spec|
   spec.add_development_dependency 'simplecov'
   spec.add_dependency 'rails', '>= 3.2'
   spec.add_development_dependency 'minitest'
+  spec.add_development_dependency 'pry'
 end

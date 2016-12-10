@@ -35,20 +35,26 @@ module JSONAPI
     end
 
     def change(callback)
+      completed = false
+
       if @changing
         run_callbacks callback do
-          yield
+          completed = (yield == :completed)
         end
       else
         run_callbacks is_new? ? :create : :update do
           @changing = true
           run_callbacks callback do
-            yield
+            completed = (yield == :completed)
           end
 
-          save if @save_needed || is_new?
+          if @save_needed || is_new?
+            completed = (save == :completed)
+          end
         end
       end
+
+      return completed ? :completed : :accepted
     end
 
     def remove
@@ -111,18 +117,42 @@ module JSONAPI
       end
     end
 
+    # Override this on a resource to return a different result code. Any
+    # value other than :completed will result in operations returning
+    # `:accepted`
+    #
+    # For example to return `:accepted` if your model does not immediately
+    # save resources to the database you could override `_save` as follows:
+    #
+    # ```
+    # def _save
+    #   super
+    #   return :accepted
+    # end
+    # ```
     def _save
       unless @model.valid?
         raise JSONAPI::Exceptions::ValidationErrors.new(@model.errors.messages)
       end
 
-      saved = @model.save
+      if defined? @model.save
+        saved = @model.save
+        unless saved
+          raise JSONAPI::Exceptions::SaveFailed.new
+        end
+      else
+        saved = true
+      end
+
       @save_needed = !saved
-      saved
+
+      return :completed
     end
 
     def _remove
       @model.destroy
+
+      return :completed
     end
 
     def _create_has_many_links(association_type, association_key_values)
@@ -139,6 +169,8 @@ module JSONAPI
           raise JSONAPI::Exceptions::HasManyRelationExists.new(association_key_value)
         end
       end
+
+      return :completed
     end
 
     def _replace_has_many_links(association_type, association_key_values)
@@ -146,6 +178,8 @@ module JSONAPI
 
       send("#{association.foreign_key}=", association_key_values)
       @save_needed = true
+
+      return :completed
     end
 
     def _replace_has_one_link(association_type, association_key_value)
@@ -153,12 +187,16 @@ module JSONAPI
 
       send("#{association.foreign_key}=", association_key_value)
       @save_needed = true
+
+      return :completed
     end
 
     def _remove_has_many_link(association_type, key)
       association = self.class._associations[association_type]
 
       @model.send(association.type).delete(key)
+
+      return :completed
     end
 
     def _remove_has_one_link(association_type)
@@ -166,6 +204,8 @@ module JSONAPI
 
       send("#{association.foreign_key}=", nil)
       @save_needed = true
+
+      return :completed
     end
 
     def _replace_fields(field_data)
@@ -191,6 +231,8 @@ module JSONAPI
       field_data[:has_many].each do |association_type, values|
         replace_has_many_links(association_type, values)
       end if field_data[:has_many]
+
+      return :completed
     end
 
     class << self
@@ -276,25 +318,40 @@ module JSONAPI
       end
 
       def filters(*attrs)
-        @_allowed_filters.merge(attrs)
+        @_allowed_filters.merge!(attrs.inject( Hash.new ) { |h, attr| h[attr] = {}; h })
       end
 
-      def filter(attr)
-        @_allowed_filters.add(attr.to_sym)
+      def filter(attr, *args)
+        @_allowed_filters[attr.to_sym] = args.extract_options!
       end
 
       def primary_key(key)
         @_primary_key = key.to_sym
       end
 
-      # Override in your resource to filter the updateable keys
-      def updateable_fields(context = nil)
-        _updateable_associations | _attributes.keys - [:id]
+      # TODO: remove this after the createable_fields and updateable_fields are phased out
+      # :nocov:
+      def method_missing(method, *args)
+        if method.to_s.match /createable_fields/
+          ActiveSupport::Deprecation.warn("`createable_fields` is deprecated, please use `creatable_fields` instead")
+          self.creatable_fields(*args)
+        elsif method.to_s.match /updateable_fields/
+          ActiveSupport::Deprecation.warn("`updateable_fields` is deprecated, please use `updatable_fields` instead")
+          self.updatable_fields(*args)
+        else
+          super
+        end
+      end
+      # :nocov:
+
+      # Override in your resource to filter the updatable keys
+      def updatable_fields(context = nil)
+        _updatable_associations | _attributes.keys - [:id]
       end
 
-      # Override in your resource to filter the createable keys
-      def createable_fields(context = nil)
-        _updateable_associations | _attributes.keys
+      # Override in your resource to filter the creatable keys
+      def creatable_fields(context = nil)
+        _updatable_associations | _attributes.keys
       end
 
       # Override in your resource to filter the sortable keys
@@ -311,39 +368,39 @@ module JSONAPI
         records
       end
 
-      def apply_pagination(records, paginator)
+      def apply_pagination(records, paginator, order_options)
         if paginator
-          records = paginator.apply(records)
+          records = paginator.apply(records, order_options)
         end
         records
       end
 
       def apply_sort(records, order_options)
-        if order_options.any?
-          records.order(order_options)
-        else
-          records
-        end
+        records
       end
 
-      def apply_filter(records, filter, value)
+      def apply_filter(records, filter, value, options = {})
         records.where(filter => value)
       end
 
-      def apply_filters(records, filters)
+      def apply_filters(records, filters, options = {})
         required_includes = []
-        filters.each do |filter, value|
-          if _associations.include?(filter)
-            if _associations[filter].is_a?(JSONAPI::Association::HasMany)
-              required_includes.push(filter)
-              records = apply_filter(records, "#{filter}.#{_associations[filter].primary_key}", value)
+
+        if filters
+          filters.each do |filter, value|
+            if _associations.include?(filter)
+              if _associations[filter].is_a?(JSONAPI::Association::HasMany)
+                required_includes.push(filter)
+                records = apply_filter(records, "#{filter}.#{_associations[filter].primary_key}", value, options)
+              else
+                records = apply_filter(records, "#{_associations[filter].foreign_key}", value, options)
+              end
             else
-              records = apply_filter(records, "#{_associations[filter].foreign_key}", value)
+              records = apply_filter(records, filter, value, options)
             end
-          else
-            records = apply_filter(records, filter, value)
           end
         end
+
         if required_includes.any?
           records.includes(required_includes)
         elsif records.respond_to? :to_ary
@@ -353,20 +410,35 @@ module JSONAPI
         end
       end
 
-      # Override this method if you have more complex requirements than this basic find method provides
-      def find(filters, options = {})
-        context = options[:context]
-        sort_criteria = options.fetch(:sort_criteria) { [] }
-        include_directives = options.fetch(:include_directives, nil)
-
-        resources = []
+      def filter_records(filters, options)
+        include_directives = options[:include_directives]
 
         records = records(options)
         records = apply_includes(records, include_directives)
-        records = apply_filters(records, filters)
-        records = apply_sort(records, construct_order_options(sort_criteria))
-        records = apply_pagination(records, options[:paginator])
+        apply_filters(records, filters, options)
+      end
 
+      def sort_records(records, order_options)
+        apply_sort(records, order_options)
+      end
+
+      def find_count(filters, options = {})
+        filter_records(filters, options).count
+      end
+
+      # Override this method if you have more complex requirements than this basic find method provides
+      def find(filters, options = {})
+        context = options[:context]
+
+        records = filter_records(filters, options)
+
+        sort_criteria = options.fetch(:sort_criteria) { [] }
+        order_options = construct_order_options(sort_criteria)
+        records = sort_records(records, order_options)
+
+        records = apply_pagination(records, options[:paginator], order_options)
+
+        resources = []
         records.each do |model|
           resources.push self.new(model, context)
         end
@@ -376,7 +448,7 @@ module JSONAPI
 
       def find_by_key(key, options = {})
         context = options[:context]
-        include_directives = options.fetch(:include_directives, nil)
+        include_directives = options[:include_directives]
         records = records(options)
         records = apply_includes(records, include_directives)
         model = records.where({_primary_key => key}).first
@@ -445,7 +517,7 @@ module JSONAPI
         default_attribute_options.merge(@_attributes[attr])
       end
 
-      def _updateable_associations
+      def _updatable_associations
         @_associations.map { |key, association| key }
       end
 
@@ -472,7 +544,7 @@ module JSONAPI
       end
 
       def _allowed_filters
-        !@_allowed_filters.nil? ? @_allowed_filters : Set.new([:id])
+        !@_allowed_filters.nil? ? @_allowed_filters : { :id => {} }
       end
 
       def _resource_name_from_type(type)
@@ -497,14 +569,20 @@ module JSONAPI
       end
 
       def _allowed_filter?(filter)
-        _allowed_filters.include?(filter)
+        !_allowed_filters[filter].nil?
       end
 
       def module_path
-        @module_path ||= self.name =~ /::[^:]+\Z/ ? ($`.freeze.gsub('::', '/') + '/').downcase : ''
+        if name == 'JSONAPI::Resource'
+          ''
+        else
+          name =~ /::[^:]+\Z/ ? ($`.freeze.gsub('::', '/') + '/').underscore : ''
+        end
       end
 
       def construct_order_options(sort_params)
+        return {} unless sort_params
+
         sort_params.each_with_object({}) { |sort, order_hash|
           field = sort[:field] == 'id' ? _primary_key : sort[:field]
           order_hash[field] = sort[:direction]
@@ -576,14 +654,16 @@ module JSONAPI
               resource_class = Resource.resource_for(self.class.module_path + type_name)
               filters = options.fetch(:filters, {})
               sort_criteria =  options.fetch(:sort_criteria, {})
-              paginator = options.fetch(:paginator, nil)
+              paginator = options[:paginator]
 
               resources = []
+
               if resource_class
                 records = public_send(associated_records_method_name)
-                records = self.class.apply_filters(records, filters)
-                records = self.class.apply_sort(records, self.class.construct_order_options(sort_criteria))
-                records = self.class.apply_pagination(records, paginator)
+                records = resource_class.apply_filters(records, filters, options)
+                order_options = self.class.construct_order_options(sort_criteria)
+                records = resource_class.apply_sort(records, order_options)
+                records = resource_class.apply_pagination(records, paginator, order_options)
                 records.each do |record|
                   resources.push resource_class.new(record, @context)
                 end
@@ -594,5 +674,6 @@ module JSONAPI
         end
       end
     end
+
   end
 end

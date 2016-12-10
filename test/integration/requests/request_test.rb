@@ -1,8 +1,6 @@
 require File.expand_path('../../../test_helper', __FILE__)
-require File.expand_path('../../../fixtures/active_record', __FILE__)
 
 class RequestTest < ActionDispatch::IntegrationTest
-
   def setup
     JSONAPI.configuration.json_key_format = :underscored_key
     JSONAPI.configuration.route_format = :underscored_route
@@ -72,10 +70,10 @@ class RequestTest < ActionDispatch::IntegrationTest
   def test_get_camelized_route_and_links
     JSONAPI.configuration.json_key_format = :camelized_key
     JSONAPI.configuration.route_format = :camelized_route
-    get '/api/v4/expenseEntries/1/links/isoCurrency'
+    get '/api/v4/expenseEntries/1/relationships/isoCurrency'
     assert_equal 200, status
     assert_hash_equals({'links' => {
-                         'self' => 'http://www.example.com/api/v4/expenseEntries/1/links/isoCurrency',
+                         'self' => 'http://www.example.com/api/v4/expenseEntries/1/relationships/isoCurrency',
                          'related' => 'http://www.example.com/api/v4/expenseEntries/1/isoCurrency'
                        },
                        'data' => {
@@ -117,9 +115,9 @@ class RequestTest < ActionDispatch::IntegrationTest
             'attributes' => {
               'title' => 'A great new Post'
             },
-            'links' => {
+            'relationships' => {
               'tags' => {
-                'linkage' => [
+                'data' => [
                   {type: 'tags', id: 3},
                   {type: 'tags', id: 4}
                 ]
@@ -138,9 +136,9 @@ class RequestTest < ActionDispatch::IntegrationTest
           'attributes' => {
             'title' => 'A great new Post'
           },
-          'links' => {
+          'relationships' => {
             'tags' => {
-              'linkage' => [
+              'data' => [
                   {type: 'tags', id: 3},
                   {type: 'tags', id: 4}
                 ]
@@ -161,8 +159,8 @@ class RequestTest < ActionDispatch::IntegrationTest
             'title' => 'A great new Post',
             'body' => 'JSONAPIResources is the greatest thing since unsliced bread.'
           },
-          'links' => {
-            'author' => {'linkage' => {type: 'people', id: '3'}}
+          'relationships' => {
+            'author' => {'data' => {type: 'people', id: '3'}}
           }
         }
       }.to_json, "CONTENT_TYPE" => JSONAPI::MEDIA_TYPE
@@ -190,8 +188,8 @@ class RequestTest < ActionDispatch::IntegrationTest
 
     assert_equal 201, status
     assert_nil json_response['data']['attributes']['body']
-    assert_nil json_response['data']['links']['post']['linkage']
-    assert_nil json_response['data']['links']['author']['linkage']
+    assert_nil json_response['data']['relationships']['post']['data']
+    assert_nil json_response['data']['relationships']['author']['data']
   end
 
   def test_post_single_minimal_invalid
@@ -207,21 +205,21 @@ class RequestTest < ActionDispatch::IntegrationTest
 
   def test_update_association_without_content_type
     ruby = Section.find_by(name: 'ruby')
-    patch '/posts/3/links/section', { 'data' => {type: 'sections', id: ruby.id.to_s }}.to_json
+    patch '/posts/3/relationships/section', { 'data' => {type: 'sections', id: ruby.id.to_s }}.to_json
 
     assert_equal 415, status
   end
 
   def test_patch_update_association_has_one
     ruby = Section.find_by(name: 'ruby')
-    patch '/posts/3/links/section', { 'data' => {type: 'sections', id: ruby.id.to_s }}.to_json, "CONTENT_TYPE" => JSONAPI::MEDIA_TYPE
+    patch '/posts/3/relationships/section', { 'data' => {type: 'sections', id: ruby.id.to_s }}.to_json, "CONTENT_TYPE" => JSONAPI::MEDIA_TYPE
 
     assert_equal 204, status
   end
 
   def test_put_update_association_has_one
     ruby = Section.find_by(name: 'ruby')
-    put '/posts/3/links/section', { 'data' => {type: 'sections', id: ruby.id.to_s }}.to_json, "CONTENT_TYPE" => JSONAPI::MEDIA_TYPE
+    put '/posts/3/relationships/section', { 'data' => {type: 'sections', id: ruby.id.to_s }}.to_json, "CONTENT_TYPE" => JSONAPI::MEDIA_TYPE
 
     assert_equal 204, status
   end
@@ -230,14 +228,14 @@ class RequestTest < ActionDispatch::IntegrationTest
     # Comments are acts_as_set=false so PUT/PATCH should respond with 403
 
     rogue = Comment.find_by(body: 'Rogue Comment Here')
-    patch '/posts/5/links/comments', { 'data' => [{type: 'comments', id: rogue.id.to_s }]}.to_json, "CONTENT_TYPE" => JSONAPI::MEDIA_TYPE
+    patch '/posts/5/relationships/comments', { 'data' => [{type: 'comments', id: rogue.id.to_s }]}.to_json, "CONTENT_TYPE" => JSONAPI::MEDIA_TYPE
 
     assert_equal 403, status
   end
 
   def test_post_update_association_has_many
     rogue = Comment.find_by(body: 'Rogue Comment Here')
-    post '/posts/5/links/comments', { 'data' => [{type: 'comments', id: rogue.id.to_s }]}.to_json, "CONTENT_TYPE" => JSONAPI::MEDIA_TYPE
+    post '/posts/5/relationships/comments', { 'data' => [{type: 'comments', id: rogue.id.to_s }]}.to_json, "CONTENT_TYPE" => JSONAPI::MEDIA_TYPE
 
     assert_equal 204, status
   end
@@ -246,7 +244,7 @@ class RequestTest < ActionDispatch::IntegrationTest
     # Comments are acts_as_set=false so PUT/PATCH should respond with 403. Note: JR currently treats PUT and PATCH as equivalent
 
     rogue = Comment.find_by(body: 'Rogue Comment Here')
-    put '/posts/5/links/comments', { 'data' => [{type: 'comments', id: rogue.id.to_s }]}.to_json, "CONTENT_TYPE" => JSONAPI::MEDIA_TYPE
+    put '/posts/5/relationships/comments', { 'data' => [{type: 'comments', id: rogue.id.to_s }]}.to_json, "CONTENT_TYPE" => JSONAPI::MEDIA_TYPE
 
     assert_equal 403, status
   end
@@ -270,9 +268,9 @@ class RequestTest < ActionDispatch::IntegrationTest
             'attributes' => {
               'title' => 'A great new Post'
             },
-            'links' => {
+            'relationships' => {
               'tags' => {
-                'linkage' => [
+                'data' => [
                   {type: 'tags', id: 3},
                   {type: 'tags', id: 4}
                 ]
@@ -293,9 +291,9 @@ class RequestTest < ActionDispatch::IntegrationTest
             'attributes' => {
               'title' => 'A great new Post'
             },
-            'links' => {
+            'relationships' => {
               'tags' => {
-                'linkage' => [
+                'data' => [
                   {type: 'tags', id: 3},
                   {type: 'tags', id: 4}
                 ]
@@ -315,8 +313,8 @@ class RequestTest < ActionDispatch::IntegrationTest
          'attributes' => {
            'title' => 'A great new Post'
          },
-         'links' => {
-           'author' => {'linkage' => {type: 'people', id: '3'}}
+         'relationships' => {
+           'author' => {'data' => {type: 'people', id: '3'}}
          }
        }
      }.to_json, "CONTENT_TYPE" => JSONAPI::MEDIA_TYPE
@@ -378,7 +376,7 @@ class RequestTest < ActionDispatch::IntegrationTest
     assert_equal 200, status
     assert_equal 2, json_response['data'].size
     assert_equal 'http://www.example.com/api/v2/books/1/book_comments',
-                 json_response['data'][1]['links']['book_comments']['related']
+                 json_response['data'][1]['relationships']['book_comments']['links']['related']
   end
 
   def test_pagination_related_resources_data
@@ -414,11 +412,11 @@ class RequestTest < ActionDispatch::IntegrationTest
     assert_equal 200, status
     post_1 = json_response['data'][0]
 
-    get post_1['links']['author']['self']
+    get post_1['relationships']['author']['links']['self']
     assert_equal 200, status
     assert_hash_equals(json_response, {
                                       'links' => {
-                                        'self' => 'http://www.example.com/posts/1/links/author',
+                                        'self' => 'http://www.example.com/posts/1/relationships/author',
                                         'related' => 'http://www.example.com/posts/1/author'
                                       },
                                       'data' => {type: 'people', id: '1'}
@@ -430,12 +428,12 @@ class RequestTest < ActionDispatch::IntegrationTest
     assert_equal 200, status
     post_1 = json_response['data'][0]
 
-    get post_1['links']['tags']['self']
+    get post_1['relationships']['tags']['links']['self']
     assert_equal 200, status
     assert_hash_equals(json_response,
                        {
                          'links' => {
-                           'self' => 'http://www.example.com/posts/1/links/tags',
+                           'self' => 'http://www.example.com/posts/1/relationships/tags',
                            'related' => 'http://www.example.com/posts/1/tags'
                           },
                           'data' => [
@@ -451,18 +449,18 @@ class RequestTest < ActionDispatch::IntegrationTest
     assert_equal 200, status
     post_1 = json_response['data'][4]
 
-    post post_1['links']['tags']['self'],
+    post post_1['relationships']['tags']['links']['self'],
          {'data' => [{'type' => 'tags', 'id' => '10'}]}.to_json,
          "CONTENT_TYPE" => JSONAPI::MEDIA_TYPE
 
     assert_equal 204, status
 
-    get post_1['links']['tags']['self']
+    get post_1['relationships']['tags']['links']['self']
     assert_equal 200, status
     assert_hash_equals(json_response,
                        {
                          'links' => {
-                           'self' => 'http://www.example.com/posts/5/links/tags',
+                           'self' => 'http://www.example.com/posts/5/relationships/tags',
                            'related' => 'http://www.example.com/posts/5/tags'
                          },
                          'data' => [
@@ -604,9 +602,9 @@ class RequestTest < ActionDispatch::IntegrationTest
               'attributes' => {
                 'item-cost' => '23.57'
               },
-              'links' => {
+              'relationships' => {
                 'purchase-order' => {
-                  'linkage' => {'type' => 'purchase-orders', 'id' => '2'}
+                  'data' => {'type' => 'purchase-orders', 'id' => '2'}
                 }
               }
             }
@@ -623,15 +621,15 @@ class RequestTest < ActionDispatch::IntegrationTest
             'data' => {
               'id' => '2',
               'type' => 'purchase-orders',
-              'links' => {
+              'relationships' => {
                 'line-items' => {
-                  'linkage' => [
+                  'data' => [
                     {'type' => 'line-items', 'id' => '3'},
                     {'type' => 'line-items', 'id' => '4'}
                   ]
                 },
                 'order-flags' => {
-                  'linkage' => [
+                  'data' => [
                     {'type' => 'order-flags', 'id' => '1'},
                     {'type' => 'order-flags', 'id' => '2'}
                   ]
@@ -646,7 +644,7 @@ class RequestTest < ActionDispatch::IntegrationTest
   def test_post_has_many_link
     JSONAPI.configuration.route_format = :dasherized_route
     JSONAPI.configuration.json_key_format = :dasherized_key
-    post '/api/v6/purchase-orders/3/links/line-items',
+    post '/api/v6/purchase-orders/3/relationships/line-items',
           {
             'data' => [
               {'type' => 'line-items', 'id' => '3'},
@@ -660,7 +658,7 @@ class RequestTest < ActionDispatch::IntegrationTest
   def test_patch_has_many_link
     JSONAPI.configuration.route_format = :dasherized_route
     JSONAPI.configuration.json_key_format = :dasherized_key
-    patch '/api/v6/purchase-orders/3/links/order-flags',
+    patch '/api/v6/purchase-orders/3/relationships/order-flags',
          {
            'data' => [
              {'type' => 'order-flags', 'id' => '1'},
@@ -674,7 +672,7 @@ class RequestTest < ActionDispatch::IntegrationTest
   def test_patch_has_one
     JSONAPI.configuration.route_format = :dasherized_route
     JSONAPI.configuration.json_key_format = :dasherized_key
-    patch '/api/v6/line-items/5/links/purchase-order',
+    patch '/api/v6/line-items/5/relationships/purchase-order',
          {
            'data' => {'type' => 'purchase-orders', 'id' => '3'}
          }.to_json, "CONTENT_TYPE" => JSONAPI::MEDIA_TYPE

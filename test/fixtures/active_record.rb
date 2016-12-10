@@ -162,6 +162,11 @@ ActiveRecord::Schema.define do
     t.string   :numero_telefone
     t.timestamps null: false
   end
+
+  create_table :categories, force: true do |t|
+    t.string :name
+    t.string :status, limit: 10
+  end
 end
 
 ### MODELS
@@ -217,6 +222,16 @@ class Planet < ActiveRecord::Base
   belongs_to :planet_type
 
   has_and_belongs_to_many :tags, join_table: :planets_tags
+
+  # Test model callback cancelling save
+  before_save :check_not_pluto
+
+  def check_not_pluto
+    # Pluto can't be a planet, so cancel the save
+    if name.downcase == 'pluto'
+      return false
+    end
+  end
 end
 
 class PlanetType < ActiveRecord::Base
@@ -255,10 +270,6 @@ class Breed
 
   def destroy
     $breed_data.remove(@id)
-  end
-
-  def save
-    true
   end
 
   def valid?
@@ -329,12 +340,23 @@ end
 class NumeroTelefone < ActiveRecord::Base
 end
 
+class Category < ActiveRecord::Base
+end
+
 ### PORO Data - don't do this in a production app
 $breed_data = BreedData.new
 $breed_data.add(Breed.new(0, 'persian'))
 $breed_data.add(Breed.new(1, 'siamese'))
 $breed_data.add(Breed.new(2, 'sphinx'))
 $breed_data.add(Breed.new(3, 'to_delete'))
+
+### OperationsProcessor
+class CountingActiveRecordOperationsProcessor < ActiveRecordOperationsProcessor
+  after_find_operation do
+    @operation_meta[:total_records] = @operation.record_count
+    @operation_links['spec'] = 'https://test_corp.com'
+  end
+end
 
 ### CONTROLLERS
 class AuthorsController < JSONAPI::ResourceController
@@ -366,6 +388,9 @@ class BreedsController < JSONAPI::ResourceController
 end
 
 class FactsController < JSONAPI::ResourceController
+end
+
+class CategoriesController < JSONAPI::ResourceController
 end
 
 ### CONTROLLERS
@@ -524,6 +549,8 @@ class CommentResource < JSONAPI::Resource
   has_one :post
   has_one :author, class_name: 'Person'
   has_many :tags
+
+  filters :body
 end
 
 class TagResource < JSONAPI::Resource
@@ -587,11 +614,11 @@ class PostResource < JSONAPI::Resource
   filters :title, :author, :tags, :comments
   filters :id, :ids
 
-  def self.updateable_fields(context)
+  def self.updatable_fields(context)
     super(context) - [:author, :subject]
   end
 
-  def self.createable_fields(context)
+  def self.creatable_fields(context)
     super(context) - [:subject]
   end
 
@@ -675,6 +702,11 @@ class BreedResource < JSONAPI::Resource
   def self.find_by_key(id, options = {})
     BreedResource.new($breed_data.breeds[id.to_i], options[:context])
   end
+
+  def _save
+    super
+    return :accepted
+  end
 end
 
 class PlanetResource < JSONAPI::Resource
@@ -726,6 +758,10 @@ class FactResource < JSONAPI::Resource
   attribute :bedtime
   attribute :photo
   attribute :cool
+end
+
+class CategoryResource < JSONAPI::Resource
+  filter :status, default: 'active'
 end
 
 module Api
@@ -812,6 +848,10 @@ module Api
     IsoCurrencyResource = IsoCurrencyResource.dup
 
     class BookResource < Api::V2::BookResource
+      paginator :paged
+    end
+
+    class BookCommentResource < Api::V2::BookCommentResource
       paginator :paged
     end
   end
@@ -934,10 +974,17 @@ saturn = Planet.create(name: 'Satern',
                        description: 'Saturn is the sixth planet from the Sun and the second largest planet in the Solar System, after Jupiter.',
                        planet_type_id: planetoid.id)
 titan = Moon.create(name:'Titan', description: 'Best known of the Saturn moons.', planet_id: saturn.id)
-pluto = Planet.create(name: 'Pluto', description: 'Pluto is the smallest planet.', planet_type_id: planetoid.id)
+makemake = Planet.create(name: 'Makemake', description: 'A small planetoid in the Kuiperbelt.', planet_type_id: planetoid.id)
 uranus = Planet.create(name: 'Uranus', description: 'Insert adolescent jokes here.', planet_type_id: gas_giant.id)
 jupiter = Planet.create(name: 'Jupiter', description: 'A gas giant.', planet_type_id: gas_giant.id)
 betax = Planet.create(name: 'Beta X', description: 'Newly discovered Planet X', planet_type_id: unknown.id)
 betay = Planet.create(name: 'Beta X', description: 'Newly discovered Planet Y', planet_type_id: unknown.id)
 betaz = Planet.create(name: 'Beta X', description: 'Newly discovered Planet Z', planet_type_id: unknown.id)
 betaw = Planet.create(name: 'Beta W', description: 'Newly discovered Planet W')
+Category.create(name: 'Category A', status: 'active')
+Category.create(name: 'Category B', status: 'active')
+Category.create(name: 'Category C', status: 'active')
+Category.create(name: 'Category D', status: 'inactive')
+Category.create(name: 'Category E', status: 'inactive')
+Category.create(name: 'Category F', status: 'inactive')
+Category.create(name: 'Category G', status: 'inactive')

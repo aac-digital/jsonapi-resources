@@ -132,7 +132,113 @@ class ResourceTest < ActiveSupport::TestCase
     end
   end
 
-  def test_updateable_fields_does_not_include_id
-    assert(!CatResource.updateable_fields.include?(:id))
+  def test_updatable_fields_does_not_include_id
+    assert(!CatResource.updatable_fields.include?(:id))
+  end
+
+  # TODO: Please remove after `updateable_fields` is removed
+  def test_updateable_fields_delegates_to_updatable_fields_with_deprecation
+    ActiveSupport::Deprecation.silence do
+      assert_empty(CatResource.updateable_fields(nil) - [:mother, :father, :name, :breed])
+    end
+  end
+
+  # TODO: Please remove after `createable_fields` is removed
+  def test_createable_fields_delegates_to_creatable_fields_with_deprecation
+    ActiveSupport::Deprecation.silence do
+      assert_empty(CatResource.createable_fields(nil) - [:mother, :father, :name, :breed, :id])
+    end
+  end
+
+  def test_has_many_association_filters
+    post_resource = PostResource.new(Post.find(1))
+    comments = post_resource.comments
+    assert_equal(2, comments.size)
+
+    # define apply_filters method on post resource to not respect filters
+    PostResource.instance_eval do
+      def apply_filters(records, filters, options)
+        # :nocov:
+        records
+        # :nocov:
+      end
+    end
+
+    filtered_comments = post_resource.comments({ filters: { body: 'i liked it' } })
+    assert_equal(1, filtered_comments.size)
+
+    # reset method to original implementation
+    PostResource.instance_eval do
+      def apply_filters(records, filters, options)
+        # :nocov:
+        super
+        # :nocov:
+      end
+    end
+  end
+
+  def test_has_many_association_sorts
+    post_resource = PostResource.new(Post.find(1))
+    comment_ids = post_resource.comments.map{|c| c.model.id }
+    assert_equal [1,2], comment_ids
+
+    # define apply_filters method on post resource to not respect filters
+    PostResource.instance_eval do
+      def apply_sort(records, criteria)
+        # :nocov:
+        records
+        # :nocov:
+      end
+    end
+
+    sorted_comment_ids = post_resource.comments(sort_criteria: [{ field: 'id', direction: 'desc'}]).map{|c| c.model.id }
+    assert_equal [2,1], sorted_comment_ids
+
+    # reset method to original implementation
+    PostResource.instance_eval do
+      def apply_sort(records, criteria)
+        # :nocov:
+        super
+        # :nocov:
+      end
+    end
+  end
+
+  def test_has_many_association_pagination
+    post_resource = PostResource.new(Post.find(1))
+    comments = post_resource.comments
+    assert_equal 2, comments.size
+
+    # define apply_filters method on post resource to not respect filters
+    PostResource.instance_eval do
+      def apply_pagination(records, criteria, order_options)
+        # :nocov:
+        records
+        # :nocov:
+      end
+    end
+
+    paginator_class = Class.new(JSONAPI::Paginator) do
+      def initialize(params)
+        # param parsing and validation here
+        @page = params.to_i
+      end
+
+      def apply(relation, order_options)
+        relation.offset(@page).limit(1)
+      end
+    end
+
+    paged_comments = post_resource.comments(paginator: paginator_class.new(1))
+    assert_equal 1, paged_comments.size
+
+    # reset method to original implementation
+    PostResource.instance_eval do
+      def apply_pagination(records, criteria, order_options)
+        # :nocov:
+        super
+        # :nocov:
+      end
+    end
   end
 end

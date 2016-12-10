@@ -26,6 +26,13 @@ module ActionDispatch
           options.merge!(res.routing_resource_options)
           options[:path] = format_route(@resource_type)
 
+          if options[:except]
+            options[:except] << :new unless options[:except].include?(:new) || options[:except].include?('new')
+            options[:except] << :edit unless options[:except].include?(:edit) || options[:except].include?('edit')
+          else
+            options[:except] = [:new, :edit]
+          end
+
           resource @resource_type, options do
             @scope[:jsonapi_resource] = @resource_type
 
@@ -37,15 +44,15 @@ module ActionDispatch
           end
         end
 
-        def jsonapi_relationships
+        def jsonapi_relationships(options = {})
           res = JSONAPI::Resource.resource_for(resource_type_with_module_prefix(@resource_type))
           res._associations.each do |association_name, association|
             if association.is_a?(JSONAPI::Association::HasMany)
-              jsonapi_links(association_name)
-              jsonapi_related_resources(association_name)
+              jsonapi_links(association_name, options)
+              jsonapi_related_resources(association_name, options)
             else
-              jsonapi_link(association_name)
-              jsonapi_related_resource(association_name)
+              jsonapi_link(association_name, options)
+              jsonapi_related_resource(association_name, options)
             end
           end
         end
@@ -61,6 +68,13 @@ module ActionDispatch
           options[:param] = :id
 
           options[:path] = format_route(@resource_type)
+
+          if options[:except]
+            options[:except] << :new unless options[:except].include?(:new) || options[:except].include?('new')
+            options[:except] << :edit unless options[:except].include?(:edit) || options[:except].include?('edit')
+          else
+            options[:except] = [:new, :edit]
+          end
 
           resources @resource_type, options do
             @scope[:jsonapi_resource] = @resource_type
@@ -95,17 +109,17 @@ module ActionDispatch
           methods = links_methods(options)
 
           if methods.include?(:show)
-            match "links/#{formatted_association_name}", controller: options[:controller],
+            match "relationships/#{formatted_association_name}", controller: options[:controller],
                   action: 'show_association', association: link_type.to_s, via: [:get]
           end
 
           if methods.include?(:update)
-            match "links/#{formatted_association_name}", controller: options[:controller],
+            match "relationships/#{formatted_association_name}", controller: options[:controller],
                   action: 'update_association', association: link_type.to_s, via: [:put, :patch]
           end
 
           if methods.include?(:destroy)
-            match "links/#{formatted_association_name}", controller: options[:controller],
+            match "relationships/#{formatted_association_name}", controller: options[:controller],
                   action: 'destroy_association', association: link_type.to_s, via: [:delete]
           end
         end
@@ -121,22 +135,22 @@ module ActionDispatch
           methods = links_methods(options)
 
           if methods.include?(:show)
-            match "links/#{formatted_association_name}", controller: options[:controller],
+            match "relationships/#{formatted_association_name}", controller: options[:controller],
                    action: 'show_association', association: link_type.to_s, via: [:get]
           end
 
           if methods.include?(:create)
-            match "links/#{formatted_association_name}", controller: options[:controller],
+            match "relationships/#{formatted_association_name}", controller: options[:controller],
                   action: 'create_association', association: link_type.to_s, via: [:post]
           end
 
           if methods.include?(:update)
-            match "links/#{formatted_association_name}", controller: options[:controller],
+            match "relationships/#{formatted_association_name}", controller: options[:controller],
                   action: 'update_association', association: link_type.to_s, via: [:put, :patch]
           end
 
           if methods.include?(:destroy)
-            match "links/#{formatted_association_name}/:keys", controller: options[:controller],
+            match "relationships/#{formatted_association_name}/:keys", controller: options[:controller],
                   action: 'destroy_association', association: link_type.to_s, via: [:delete]
           end
         end
